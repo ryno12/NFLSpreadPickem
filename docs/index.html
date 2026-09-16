@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Spread Pick'em</title>
+  <meta name="theme-color" content="#0b0f14" />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%8F%88%3C/text%3E%3C/svg%3E" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <!-- Auth -->
+  <section id="auth" class="auth hidden">
+    <div class="auth-card">
+      <h1>🏈 Spread Pick'em</h1>
+      <p class="muted">Sign in with the account your commissioner set up for you.</p>
+      <form id="login-form">
+        <label>Email <input type="email" name="email" autocomplete="username" required /></label>
+        <label>Password <input type="password" name="password" autocomplete="current-password" required /></label>
+        <button type="submit" class="btn primary">Sign in</button>
+        <p id="auth-error" class="error"></p>
+      </form>
+      <details>
+        <summary class="muted">Forgot password?</summary>
+        <form id="reset-form">
+          <label>Email <input type="email" name="email" required /></label>
+          <button type="submit" class="btn">Send reset link</button>
+          <p id="reset-msg" class="muted"></p>
+        </form>
+      </details>
+    </div>
+  </section>
+
+  <!-- Set new password (arrives via reset link) -->
+  <section id="newpass" class="auth hidden">
+    <div class="auth-card">
+      <h1>Set a new password</h1>
+      <form id="newpass-form">
+        <label>New password <input type="password" name="password" minlength="8" required /></label>
+        <button type="submit" class="btn primary">Save</button>
+        <p id="newpass-error" class="error"></p>
+      </form>
+    </div>
+  </section>
+
+  <!-- App -->
+  <div id="app" class="hidden">
+    <header class="topbar">
+      <div class="brand">🏈 <span>Spread Pick'em</span></div>
+      <nav class="tabs" role="tablist">
+        <button class="tab active" data-tab="picks">Picks</button>
+        <button class="tab" data-tab="board">Scoreboard</button>
+        <button class="tab" data-tab="stats">Stats</button>
+      </nav>
+      <div class="user">
+        <span id="me-name"></span>
+        <button id="signout" class="btn small ghost" title="Sign out">Sign out</button>
+      </div>
+    </header>
+
+    <div class="weeknav">
+      <button id="prev-week" class="btn small">◀</button>
+      <div class="weeklabel"><strong id="week-title">Week –</strong><span id="week-sub" class="muted"></span></div>
+      <button id="next-week" class="btn small">▶</button>
+      <button id="refresh" class="btn small ghost" title="Refresh">↻</button>
+    </div>
+
+    <main>
+      <section id="tab-picks" class="tabpane">
+        <div id="pick-status" class="pickstatus"></div>
+        <div id="games"></div>
+      </section>
+
+      <section id="tab-board" class="tabpane hidden">
+        <h2>Season standings</h2>
+        <div id="standings"></div>
+        <h2>Week by week</h2>
+        <div id="weeks-table"></div>
+        <h2>Where you split <span class="muted small" id="split-week"></span></h2>
+        <p class="muted small">Games where players took different sides. Only games that have kicked off show up here — the rest are still secret.</p>
+        <div id="splits"></div>
+      </section>
+
+      <section id="tab-stats" class="tabpane hidden">
+        <h2>Vs. Vegas</h2>
+        <p class="muted small">Against the spread you're supposed to hit 50%. Closing line value (CLV) is your locked number vs. where DraftKings closed — positive means you beat the market. Sharps have positive CLV. Squares don't.</p>
+        <div id="vegas"></div>
+        <h2>Streaks</h2>
+        <div id="streaks"></div>
+        <h2>Badges</h2>
+        <div id="badges"></div>
+      </section>
+    </main>
+
+    <div id="toast" class="toast hidden"></div>
+  </div>
+
+  <script src="config.js"></script>
+  <script type="module" src="app.js"></script>
+</body>
+</html>

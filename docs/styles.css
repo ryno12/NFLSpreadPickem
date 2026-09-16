@@ -1,0 +1,139 @@
+:root {
+  --bg: #0b0f14;
+  --panel: #131a22;
+  --panel-2: #1a232e;
+  --line: #263241;
+  --text: #e8eef5;
+  --muted: #8b9bb0;
+  --accent: #3ddc84;
+  --accent-2: #4da3ff;
+  --gold: #f5c542;
+  --win: #3ddc84;
+  --loss: #ff5c6c;
+  --push: #b3b9c4;
+  --radius: 12px;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text);
+  font: 15px/1.45 system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; }
+a { color: var(--accent-2); }
+.hidden { display: none !important; }
+.muted { color: var(--muted); }
+.small { font-size: 12.5px; }
+.error { color: var(--loss); min-height: 1.2em; margin: 6px 0 0; font-size: 13px; }
+h2 { font-size: 16px; margin: 22px 0 10px; letter-spacing: .3px; text-transform: uppercase; color: var(--muted); }
+
+/* buttons */
+.btn { background: var(--panel-2); color: var(--text); border: 1px solid var(--line); border-radius: 10px;
+  padding: 9px 14px; font-size: 14px; cursor: pointer; transition: background .15s, border-color .15s; }
+.btn:hover { background: #22303e; }
+.btn.primary { background: var(--accent); color: #062b16; border-color: transparent; font-weight: 600; }
+.btn.primary:hover { filter: brightness(1.05); }
+.btn.small { padding: 6px 10px; font-size: 13px; }
+.btn.ghost { background: transparent; }
+.btn:disabled { opacity: .5; cursor: default; }
+
+/* auth */
+.auth { min-height: 100vh; display: grid; place-items: center; padding: 20px; }
+.auth-card { width: 100%; max-width: 380px; background: var(--panel); border: 1px solid var(--line);
+  border-radius: 16px; padding: 26px; }
+.auth-card h1 { margin: 0 0 6px; font-size: 22px; }
+.auth-card label { display: block; margin: 14px 0 6px; font-size: 13px; color: var(--muted); }
+.auth-card input { width: 100%; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line);
+  background: var(--bg); color: var(--text); font-size: 15px; }
+.auth-card form .btn { margin-top: 16px; width: 100%; }
+.auth-card details { margin-top: 18px; }
+.auth-card summary { cursor: pointer; font-size: 13px; }
+
+/* layout */
+.topbar { display: flex; align-items: center; gap: 16px; padding: 12px 16px; border-bottom: 1px solid var(--line);
+  background: var(--panel); position: sticky; top: 0; z-index: 5; flex-wrap: wrap; }
+.brand { font-weight: 700; font-size: 17px; }
+.tabs { display: flex; gap: 4px; margin-left: auto; }
+.tab { background: transparent; border: none; color: var(--muted); padding: 8px 12px; border-radius: 8px;
+  cursor: pointer; font-size: 14px; }
+.tab.active { background: var(--panel-2); color: var(--text); }
+.user { display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--muted); }
+.weeknav { display: flex; align-items: center; gap: 10px; padding: 12px 16px; max-width: 980px; margin: 0 auto; }
+.weeklabel { display: flex; flex-direction: column; min-width: 140px; }
+.weeklabel strong { font-size: 16px; }
+main { max-width: 980px; margin: 0 auto; padding: 0 16px 60px; }
+
+/* pick status */
+.pickstatus { display: flex; gap: 10px; flex-wrap: wrap; margin: 6px 0 14px; }
+.chip { background: var(--panel); border: 1px solid var(--line); border-radius: 999px; padding: 6px 12px; font-size: 13px; }
+.chip.me { border-color: var(--accent); }
+.chip .gold { color: var(--gold); }
+.chip .warn { color: var(--loss); }
+
+/* games */
+.day { margin: 18px 0 8px; font-size: 13px; text-transform: uppercase; letter-spacing: .4px; color: var(--muted); }
+.game { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 12px; margin-bottom: 10px; }
+.game.locked { border-color: #2e3a49; }
+.game .meta { display: flex; justify-content: space-between; align-items: center; font-size: 12.5px; color: var(--muted); margin-bottom: 8px; gap: 8px; flex-wrap: wrap; }
+.game .meta .live { color: var(--loss); font-weight: 600; }
+.game .meta .final { color: var(--text); font-weight: 600; }
+.sides { display: grid; grid-template-columns: 1fr auto 1fr; gap: 8px; align-items: stretch; }
+.side { background: var(--panel-2); border: 2px solid transparent; border-radius: 10px; padding: 10px 12px; cursor: pointer;
+  text-align: left; color: var(--text); display: flex; flex-direction: column; gap: 2px; transition: border-color .15s, background .15s; }
+.side:hover:not(:disabled) { border-color: #3a4a5c; }
+.side.picked { border-color: var(--accent); background: #16261e; }
+.side.picked.gold { border-color: var(--gold); background: #2a2410; }
+.side:disabled { cursor: default; }
+.side.win { box-shadow: inset 0 0 0 2px var(--win); }
+.side.loss { opacity: .55; }
+.side .team { font-weight: 600; font-size: 15px; }
+.side .spread { font-size: 13px; color: var(--muted); }
+.side .score { font-size: 20px; font-weight: 700; margin-top: 2px; }
+.side.away { text-align: left; }
+.side.home { text-align: right; align-items: flex-end; }
+.at { display: grid; place-items: center; color: var(--muted); font-size: 12px; min-width: 24px; }
+.game .foot { display: flex; justify-content: space-between; align-items: center; margin-top: 8px; font-size: 12.5px; color: var(--muted); gap: 8px; flex-wrap: wrap; }
+.goldbtn { background: transparent; border: 1px solid var(--line); color: var(--muted); border-radius: 999px; padding: 4px 10px; cursor: pointer; font-size: 12.5px; }
+.goldbtn.on { border-color: var(--gold); color: var(--gold); background: #2a2410; }
+.others { display: flex; gap: 6px; flex-wrap: wrap; }
+.pill { display: inline-flex; align-items: center; gap: 5px; border-radius: 999px; padding: 3px 9px; font-size: 12px; background: var(--panel-2); border: 1px solid var(--line); }
+.pill.win { border-color: var(--win); color: var(--win); }
+.pill.loss { border-color: var(--loss); color: var(--loss); }
+.pill.push { border-color: var(--push); color: var(--push); }
+.pill.missed { border-style: dashed; color: var(--muted); }
+.pill .g { color: var(--gold); }
+.moved { color: var(--accent-2); }
+
+/* tables */
+table { width: 100%; border-collapse: collapse; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
+th, td { padding: 9px 10px; text-align: right; border-bottom: 1px solid var(--line); font-size: 14px; white-space: nowrap; }
+th { color: var(--muted); font-weight: 500; font-size: 12px; text-transform: uppercase; letter-spacing: .3px; }
+th:first-child, td:first-child { text-align: left; }
+tr:last-child td { border-bottom: none; }
+td.lead { color: var(--accent); font-weight: 700; }
+td.won { color: var(--win); font-weight: 600; }
+td.lost { color: var(--loss); }
+td.tied { color: var(--push); }
+.tablewrap { overflow-x: auto; }
+.pos { color: var(--win); } .neg { color: var(--loss); }
+
+/* stats */
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 14px; }
+.card h3 { margin: 0 0 8px; font-size: 14px; }
+.card .big { font-size: 26px; font-weight: 700; }
+.card .row { display: flex; justify-content: space-between; font-size: 13px; padding: 3px 0; color: var(--muted); }
+.card .row b { color: var(--text); }
+.badge { display: inline-flex; align-items: center; gap: 6px; background: var(--panel-2); border: 1px solid var(--line); border-radius: 999px; padding: 5px 10px; font-size: 13px; margin: 3px 4px 3px 0; }
+.badge span.i { font-size: 15px; }
+.empty { color: var(--muted); padding: 24px; text-align: center; background: var(--panel); border: 1px dashed var(--line); border-radius: var(--radius); }
+
+.toast { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); background: #22303e; border: 1px solid var(--line);
+  color: var(--text); padding: 10px 16px; border-radius: 10px; font-size: 14px; z-index: 20; max-width: 90vw; }
+.toast.err { border-color: var(--loss); }
+
+@media (max-width: 600px) {
+  .topbar { gap: 8px; }
+  .tabs { order: 3; width: 100%; margin-left: 0; justify-content: space-around; }
+  .user span { display: none; }
+  .side .team { font-size: 14px; }
+  th, td { padding: 7px 8px; font-size: 13px; }
+}
+
+#me-name { cursor: pointer; text-decoration: underline dotted; }
