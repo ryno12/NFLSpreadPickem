@@ -34,15 +34,17 @@ begin
   week   := ((d - s.week1_tuesday) / 7) + 1;
 end $$;
 
--- A week is hidden until 12:01 AM ET on its own Tuesday — the same boundary
--- nfl_week() rolls on. Nobody sees or picks next week's slate early.
+-- A week is hidden until 12:01 AM Mountain on its own Tuesday (= 2:01 AM ET).
+-- Nobody sees or picks next week's slate early. Note nfl_week() still rolls the
+-- week number over at midnight EASTERN, so the number advances ~2 hours before
+-- the board opens; the frontend reads the last OPEN week from the data instead.
 -- security definer so the games/lines RLS policies don't depend on the
 -- caller's own access to public.seasons.
 create or replace function public.week_opens_at(p_season int, p_week int)
 returns timestamptz
 language sql security definer set search_path = public stable as $$
   select ((s.week1_tuesday + ((p_week - 1) * 7))::timestamp + interval '1 minute')
-           at time zone 'America/New_York'
+           at time zone 'America/Denver'
     from public.seasons s
    where s.year = p_season
 $$;

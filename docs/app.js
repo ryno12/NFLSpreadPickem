@@ -37,7 +37,14 @@ const fmtDay = (iso) => new Date(iso).toLocaleDateString([], { weekday: 'long', 
 const short = (team) => team.split(' ').slice(-1)[0];           // "Kansas City Chiefs" -> "Chiefs"
 const nameOf = (id) => S.profiles.get(id)?.display_name || '?';
 const kicked = (g) => new Date(g.kickoff) <= new Date();
-const maxWeek = () => Math.min(S.thisWeek ?? 18, 18);   // next week stays hidden until its own Tuesday 12:01 AM ET
+// RLS hides an unopened week's games entirely, so the weeks the server returned
+// are exactly the open ones. Reading the cap from the data avoids doing timezone
+// math here, and stays right in the ~2h gap where nfl_week() has already rolled
+// over (midnight ET) but the board has not opened yet (12:01 AM MT).
+const maxWeek = () => {
+  const open = S.weekStatus.map(w => w.week);
+  return open.length ? Math.max(...open) : Math.min(S.thisWeek ?? 18, 18);
+};
 
 let toastTimer;
 function toast(msg, err = false) {
@@ -49,7 +56,7 @@ function friendly(err) {
   if (m.includes('LOCKED:') && !m.includes('GOLD')) return 'Too late — that game already kicked off.';
   if (m.includes('GOLD_LOCKED')) return "Your gold pick this week already kicked off, so it's staying put.";
   if (m.includes('NO_LINE')) return "DraftKings hasn't posted a line for that game yet.";
-  if (m.includes('NOT_OPEN')) return "That week isn't open yet — next week's board unlocks Tuesday at 12:01 AM ET.";
+  if (m.includes('NOT_OPEN')) return "That week isn't open yet — next week's board unlocks Tuesday at 12:01 AM MT.";
   return m;
 }
 
@@ -234,7 +241,7 @@ function renderGames() {
   const box = $('#games'); box.innerHTML = '';
   if (!S.games.length) {
     box.append(el('div', { class: 'empty' }, S.week > S.thisWeek
-      ? 'This week is still hidden. Next week\'s board opens Tuesday at 12:01 AM ET.'
+      ? 'This week is still hidden. Next week\'s board opens Tuesday at 12:01 AM MT.'
       : 'No games found for this week.'));
     return;
   }
