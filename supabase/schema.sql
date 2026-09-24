@@ -34,6 +34,21 @@ begin
   week   := ((d - s.week1_tuesday) / 7) + 1;
 end $$;
 
+-- A week is hidden until 12:01 AM ET on its own Tuesday — the same boundary
+-- nfl_week() rolls on. Nobody sees or picks next week's slate early.
+-- security definer so the games/lines RLS policies don't depend on the
+-- caller's own access to public.seasons.
+create or replace function public.week_opens_at(p_season int, p_week int)
+returns timestamptz
+language sql security definer set search_path = public stable as $$
+  select ((s.week1_tuesday + ((p_week - 1) * 7))::timestamp + interval '1 minute')
+           at time zone 'America/New_York'
+    from public.seasons s
+   where s.year = p_season
+$$;
+revoke all on function public.week_opens_at(int, int) from public, anon;
+grant execute on function public.week_opens_at(int, int) to authenticated;
+
 -- ------------------------------------------------------------
 -- Profiles: one row per auth user, auto-created on signup.
 -- first_week: the first week this player is on the hook for.
@@ -134,6 +149,9 @@ begin
   if g is null then
     raise exception 'Unknown game %', new.game_id;
   end if;
+  if public.week_opens_at(g.season, g.week) > now() then
+    raise exception 'NOT_OPEN: week % is not open for picks yet', g.week;
+  end if;
   if g.kickoff <= now() then
     raise exception 'LOCKED: this game has already kicked off';
   end if;
@@ -204,9 +222,13 @@ drop policy if exists "edit own profile" on public.profiles;
 create policy "edit own profile" on public.profiles for update to authenticated
   using (id = auth.uid()) with check (id = auth.uid());
 drop policy if exists "read games" on public.games;
-create policy "read games" on public.games for select to authenticated using (true);
+create policy "read games" on public.games for select to authenticated
+  using (public.week_opens_at(season, week) <= now());
 drop policy if exists "read lines" on public.lines;
-create policy "read lines" on public.lines for select to authenticated using (true);
+create policy "read lines" on public.lines for select to authenticated
+  using (exists (select 1 from public.games g
+                  where g.id = lines.game_id
+                    and public.week_opens_at(g.season, g.week) <= now()));
 
 -- THE important one: you see your own picks always, everyone else's only after kickoff.
 drop policy if exists "read picks" on public.picks;

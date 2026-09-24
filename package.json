@@ -1,0 +1,11 @@
+{
+  "private": true,
+  "name": "nfl-picks",
+  "description": "Private NFL against-the-spread pick'em.",
+  "scripts": {
+    "db": "node scripts/db.mjs"
+  },
+  "devDependencies": {
+    "pg": "^8.13.1"
+  }
+}

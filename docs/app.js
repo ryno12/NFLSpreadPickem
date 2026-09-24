@@ -37,6 +37,7 @@ const fmtDay = (iso) => new Date(iso).toLocaleDateString([], { weekday: 'long', 
 const short = (team) => team.split(' ').slice(-1)[0];           // "Kansas City Chiefs" -> "Chiefs"
 const nameOf = (id) => S.profiles.get(id)?.display_name || '?';
 const kicked = (g) => new Date(g.kickoff) <= new Date();
+const maxWeek = () => Math.min(S.thisWeek ?? 18, 18);   // next week stays hidden until its own Tuesday 12:01 AM ET
 
 let toastTimer;
 function toast(msg, err = false) {
@@ -48,6 +49,7 @@ function friendly(err) {
   if (m.includes('LOCKED:') && !m.includes('GOLD')) return 'Too late — that game already kicked off.';
   if (m.includes('GOLD_LOCKED')) return "Your gold pick this week already kicked off, so it's staying put.";
   if (m.includes('NO_LINE')) return "DraftKings hasn't posted a line for that game yet.";
+  if (m.includes('NOT_OPEN')) return "That week isn't open yet — next week's board unlocks Tuesday at 12:01 AM ET.";
   return m;
 }
 
@@ -193,7 +195,7 @@ document.querySelectorAll('.tab').forEach(b => b.addEventListener('click', () =>
   document.querySelectorAll('.tabpane').forEach(p => p.classList.toggle('hidden', p.id !== 'tab-' + S.tab));
 }));
 $('#prev-week').addEventListener('click', () => { if (S.week > 1) { S.week--; refresh(); } });
-$('#next-week').addEventListener('click', () => { if (S.week < 18) { S.week++; refresh(); } });
+$('#next-week').addEventListener('click', () => { if (S.week < maxWeek()) { S.week++; refresh(); } });
 $('#refresh').addEventListener('click', refresh);
 
 // ---------------------------------------------------------------- render
@@ -203,7 +205,7 @@ function render() {
   $('#week-sub').textContent = S.week === S.thisWeek ? 'current week'
     : ws?.complete ? 'final' : S.games.length ? `${ws?.finals ?? 0}/${S.games.length} final` : '';
   $('#prev-week').disabled = S.week <= 1;
-  $('#next-week').disabled = S.week >= 18;
+  $('#next-week').disabled = S.week >= maxWeek();
   renderPickStatus();
   renderGames();
   renderStandings();
@@ -232,7 +234,7 @@ function renderGames() {
   const box = $('#games'); box.innerHTML = '';
   if (!S.games.length) {
     box.append(el('div', { class: 'empty' }, S.week > S.thisWeek
-      ? 'No games loaded for this week yet. DraftKings usually posts next week\'s lines after Monday night.'
+      ? 'This week is still hidden. Next week\'s board opens Tuesday at 12:01 AM ET.'
       : 'No games found for this week.'));
     return;
   }
