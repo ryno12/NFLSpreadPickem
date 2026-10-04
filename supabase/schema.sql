@@ -122,6 +122,24 @@ create table if not exists public.lines (
 create index if not exists lines_game_idx on public.lines (game_id, captured_at desc);
 
 -- ------------------------------------------------------------
+-- Sync bookkeeping. The odds pull is throttled on "when did we last
+-- actually call the API", not on the wall clock: GitHub's scheduler
+-- fires at irregular times, so the old `UTC hour % 4 == 0` gate mostly
+-- missed and the lines went stale for days.
+-- Deliberately NOT derived from public.lines — that table only gets a
+-- row when DK's number MOVES, so a poll that found no movement would
+-- leave it stale and we would re-poll on every run.
+-- Service role only; RLS on with no policies denies everyone else.
+-- ------------------------------------------------------------
+create table if not exists public.sync_state (
+  key        text primary key,
+  ran_at     timestamptz not null,
+  updated_at timestamptz not null default now()
+);
+alter table public.sync_state enable row level security;
+revoke all on public.sync_state from anon, authenticated;
+
+-- ------------------------------------------------------------
 -- Picks. spread_at_pick is set SERVER-SIDE by trigger from the
 -- game's current line — the client never gets to choose its number.
 -- ------------------------------------------------------------

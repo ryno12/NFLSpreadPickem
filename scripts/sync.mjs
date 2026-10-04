@@ -8,8 +8,8 @@
 //    SUPABASE_SERVICE_ROLE_KEY service role key (bypasses RLS — server only!)
 //    ODDS_API_KEY              the-odds-api.com key
 //    SYNC_ODDS                 "always" | "auto" (default) | "never"
-//                              auto = only when UTC hour % ODDS_EVERY_HOURS == 0
-//    ODDS_EVERY_HOURS          default 4  (→ ~180 credits/month of the free 500)
+//                              auto = only if the last ACTUAL pull was >= ODDS_EVERY_HOURS ago
+//    ODDS_EVERY_HOURS          default 4  (→ at most ~180 credits/month of the free 500)
 //    SYNC_SCORES               "always" (default) | "never"
 // ============================================================
 
@@ -64,7 +64,7 @@ function nflWeek(iso) {
 
 // ---------- Odds ----------
 async function syncOdds() {
-  if (!ODDS_KEY) { console.log('odds: no ODDS_API_KEY, skipping'); return; }
+  if (!ODDS_KEY) { console.log('odds: no ODDS_API_KEY, skipping'); return false; }
   const url = `https://api.the-odds-api.com/v4/sports/americanfootball_nfl/odds?apiKey=${ODDS_KEY}` +
               `&regions=us&markets=spreads&bookmakers=${BOOKS.join(',')}&oddsFormat=american&dateFormat=iso`;
   const res = await fetch(url);
@@ -99,6 +99,30 @@ async function syncOdds() {
   if (upserts.length) await sb('games', { method: 'POST', body: upserts, prefer: 'resolution=merge-duplicates,return=minimal' });
   if (newLines.length) await sb('lines', { method: 'POST', body: newLines, prefer: 'return=minimal' });
   console.log(`odds: ${events.length} events, ${upserts.length} upserted, ${newLines.length} line changes`);
+  return true;
+}
+
+// Throttle on elapsed time since the last real pull, not on the clock hour.
+// GitHub's scheduler delivers runs at irregular, widely spaced times, so a
+// `UTC hour % 4 == 0` gate almost never lines up and the lines go stale.
+async function oddsDue() {
+  if (SYNC_ODDS === 'never')  return { due: false, why: 'SYNC_ODDS=never' };
+  if (SYNC_ODDS === 'always') return { due: true,  why: 'SYNC_ODDS=always' };
+  const [row] = await sb('sync_state?select=ran_at&key=eq.last_odds_pull');
+  if (!row) return { due: true, why: 'no previous pull recorded' };
+  const ageH = (Date.now() - Date.parse(row.ran_at)) / 3600000;
+  return ageH >= ODDS_EVERY
+    ? { due: true,  why: `last pull ${ageH.toFixed(1)}h ago` }
+    : { due: false, why: `last pull ${ageH.toFixed(1)}h ago, want >= ${ODDS_EVERY}h` };
+}
+
+async function markOddsPulled() {
+  const now = new Date().toISOString();
+  await sb('sync_state', {
+    method: 'POST',
+    body: [{ key: 'last_odds_pull', ran_at: now, updated_at: now }],
+    prefer: 'resolution=merge-duplicates,return=minimal',
+  });
 }
 
 // ---------- Scores (ESPN) ----------
@@ -154,9 +178,14 @@ const norm = s => (s || '').toLowerCase().replace(/[^a-z]/g, '');
 (async () => {
   seasons = await sb('seasons?select=year,week1_tuesday');
 
-  const hour = new Date().getUTCHours();
-  const doOdds = SYNC_ODDS === 'always' || (SYNC_ODDS === 'auto' && hour % ODDS_EVERY === 0);
-  if (doOdds) await syncOdds(); else console.log(`odds: skipped (hour ${hour}, every ${ODDS_EVERY}h)`);
+  const odds = await oddsDue();
+  if (odds.due) {
+    // Only record the pull if the API was actually called, and only after it
+    // succeeded — a throw here must not suppress the next run's attempt.
+    if (await syncOdds()) await markOddsPulled();
+  } else {
+    console.log(`odds: skipped (${odds.why})`);
+  }
 
   const frozen = await sb('rpc/freeze_closing_lines', { method: 'POST', body: {} });
   if (frozen) console.log(`closing lines frozen: ${frozen}`);
