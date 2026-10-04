@@ -14,6 +14,7 @@ ESPN scores  ──►
 1. https://supabase.com → New project. Name it anything, region **West US**, save the database password (you won't need it again, but keep it).
 2. Wait ~2 min for it to provision.
 3. **SQL Editor → New query** → paste the entire contents of `supabase/schema.sql` → **Run**. Should end with "Success. No rows returned".
+4. **SQL Editor → New query** → paste `supabase/scores-cron.sql` → **Run**. This schedules the in-database score sync every 10 minutes. Without it, scores only refresh when the GitHub Action happens to fire, which in practice is every few hours.
 4. **Authentication → Sign In / Providers → Email**:
    - **Turn OFF "Allow new users to sign up."** ← Important. Otherwise anyone who finds the site can make an account and show up on the scoreboard. You'll add players yourself.
    - Leave "Confirm email" on or off, doesn't matter since you create the accounts.
@@ -75,6 +76,7 @@ If the Thursday game kicks off before the site is live, text each other your pic
 
 ```
 supabase/schema.sql          the whole database: tables, lock/hide rules, scoring views
+supabase/scores-cron.sql     pg_cron job that pulls scores from ESPN every 10 min (in-season only)
 supabase/backfill-picks.sql  manual pick entry template
 scripts/sync.mjs             lines + scores job (Node 22, no dependencies)
 .github/workflows/sync.yml   runs sync.mjs hourly
