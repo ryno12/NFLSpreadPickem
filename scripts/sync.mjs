@@ -88,9 +88,18 @@ async function syncOdds() {
     }
     const prev = existing[ev.id];
     const kickedOff = new Date(ev.commence_time) <= new Date();
-    const row = { id: ev.id, season, week, kickoff: ev.commence_time, home_team: ev.home_team, away_team: ev.away_team, updated_at: new Date().toISOString() };
-    // Never move the line after kickoff (the pick trigger already refuses, but keep the record honest).
-    if (spread !== null && !kickedOff) row.home_spread = spread;
+    // home_spread is ALWAYS present: PostgREST rejects a bulk upsert whose
+    // objects have differing key sets (PGRST102), and on a normal Sunday some
+    // games have kicked off and some haven't, so a conditional key fails the
+    // whole batch. Never move the line after kickoff (the pick trigger already
+    // refuses, but keep the record honest) — carry the stored value instead of
+    // writing null, which merge-duplicates would otherwise wipe.
+    const row = {
+      id: ev.id, season, week, kickoff: ev.commence_time,
+      home_team: ev.home_team, away_team: ev.away_team,
+      updated_at: new Date().toISOString(),
+      home_spread: (spread !== null && !kickedOff) ? spread : (prev?.home_spread ?? null),
+    };
     upserts.push(row);
     if (spread !== null && !kickedOff && (!prev || Number(prev.home_spread) !== spread)) {
       newLines.push({ game_id: ev.id, book, home_spread: spread });
