@@ -412,6 +412,23 @@ $$;
 revoke all on function public.week_pick_counts(int, int) from public, anon;
 grant execute on function public.week_pick_counts(int, int) to authenticated;
 
+-- Read-only export for the "Put It On The Board" bet tracker (TJ vs. Ryan):
+-- every active player's points for COMPLETED weeks only (every game final, the
+-- same rule week_winners uses), so it never says anything about a week in play
+-- and never exposes individual picks. security definer so it can read the views
+-- without a signed-in user; callable with the public anon key from docs/config.js.
+create or replace function public.completed_week_winners(p_season int)
+returns table (season int, week int, display_name text, points int, outcome text)
+language sql security definer set search_path = public stable as $$
+  select ww.season, ww.week, pr.display_name, ww.points::int, ww.outcome
+    from public.week_winners ww
+    join public.profiles pr on pr.id = ww.user_id
+   where ww.season = p_season
+   order by ww.week, pr.display_name
+$$;
+revoke all on function public.completed_week_winners(int) from public;
+grant execute on function public.completed_week_winners(int) to anon, authenticated;
+
 -- Called by the sync job (service role) — freezes the closing line once a game kicks off.
 create or replace function public.freeze_closing_lines()
 returns int language sql security definer set search_path = public as $$
