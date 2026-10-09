@@ -274,7 +274,12 @@ grant update (display_name) on public.profiles to authenticated;
 grant select, insert, update, delete on public.picks to authenticated;
 grant usage, select on all sequences in schema public to authenticated;
 
--- Nobody anonymous touches anything.
+-- No TABLE is readable anonymously. The one thing anon can reach is the
+-- completed_week_winners() function below, which is security definer and
+-- deliberately granted to anon for the "Put It On The Board" tracker — it
+-- exposes display names and per-week points for COMPLETED weeks only.
+-- Anything else granted to anon is readable by the whole internet: the
+-- publishable key in docs/config.js is public, and so is the repo.
 revoke all on all tables in schema public from anon;
 
 -- ------------------------------------------------------------
