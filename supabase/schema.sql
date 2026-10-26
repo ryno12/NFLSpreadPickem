@@ -18,6 +18,12 @@ insert into public.seasons (year, week1_tuesday)
 values (2026, '2026-09-08')
 on conflict (year) do nothing;
 
+-- First week whose Monday night game takes a score prediction. NULL = the
+-- season has no tiebreaker at all. Added mid-2026 season, so weeks 2-7 keep
+-- the old behaviour where a points tie just stays a tie.
+alter table public.seasons add column if not exists tiebreak_from_week int;
+update public.seasons set tiebreak_from_week = 8 where year = 2026 and tiebreak_from_week is null;
+
 create or replace function public.nfl_week(ts timestamptz, out season int, out week int)
 language plpgsql stable as $$
 declare
@@ -159,6 +165,96 @@ create table if not exists public.picks (
 create unique index if not exists one_gold_per_week
   on public.picks (user_id, season, week) where is_gold;
 
+-- ------------------------------------------------------------
+-- Tiebreakers: a predicted final score for the week's last game
+-- (Monday night). Only consulted when a week ends level on points.
+-- One row per player per week; locks at that game's kickoff.
+-- ------------------------------------------------------------
+create table if not exists public.tiebreakers (
+  user_id    uuid not null references public.profiles(id) on delete cascade,
+  game_id    text not null references public.games(id) on delete cascade,
+  season     int  not null,
+  week       int  not null,
+  home_score int  not null check (home_score between 0 and 199),
+  away_score int  not null check (away_score between 0 and 199),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  primary key (user_id, game_id),
+  unique (user_id, season, week)
+);
+
+-- The game a week's tiebreaker attaches to: the latest kickoff in that week,
+-- which is the Monday night game. Returns NULL before the season's configured
+-- start week, so no tiebreaker exists to enter or score.
+-- security definer so triggers and views agree on the answer regardless of
+-- who is asking; it returns only a game id.
+create or replace function public.tiebreak_game(p_season int, p_week int)
+returns text
+language sql security definer set search_path = public stable as $$
+  select g.id
+    from public.games g
+   where g.season = p_season
+     and g.week   = p_week
+     and exists (select 1 from public.seasons s
+                  where s.year = p_season
+                    and s.tiebreak_from_week is not null
+                    and p_week >= s.tiebreak_from_week)
+   order by g.kickoff desc, g.id       -- g.id keeps it deterministic on a doubleheader
+   limit 1
+$$;
+revoke all on function public.tiebreak_game(int, int) from public, anon;
+grant execute on function public.tiebreak_game(int, int) to authenticated;
+
+create or replace function public.tiebreakers_before_write()
+returns trigger language plpgsql security definer set search_path = public as $$
+declare
+  g  public.games%rowtype;
+  tg text;
+begin
+  select * into g from public.games where id = new.game_id;
+  if g is null then
+    raise exception 'Unknown game %', new.game_id;
+  end if;
+  if public.week_opens_at(g.season, g.week) > now() then
+    raise exception 'NOT_OPEN: week % is not open for picks yet', g.week;
+  end if;
+
+  tg := public.tiebreak_game(g.season, g.week);
+  if tg is null then
+    raise exception 'NO_TIEBREAK: week % does not have a tiebreaker', g.week;
+  end if;
+  if tg is distinct from new.game_id then
+    raise exception 'NOT_TIEBREAK_GAME: only the Monday night game takes a score prediction';
+  end if;
+  if g.kickoff <= now() then
+    raise exception 'LOCKED: this game has already kicked off';
+  end if;
+
+  new.season     := g.season;
+  new.week       := g.week;
+  new.updated_at := now();
+  return new;
+end $$;
+
+drop trigger if exists tiebreakers_before_write on public.tiebreakers;
+create trigger tiebreakers_before_write
+  before insert or update on public.tiebreakers
+  for each row execute function public.tiebreakers_before_write();
+
+create or replace function public.tiebreakers_before_delete()
+returns trigger language plpgsql security definer set search_path = public as $$
+begin
+  if (select kickoff from public.games where id = old.game_id) <= now() then
+    raise exception 'LOCKED: this game has already kicked off';
+  end if;
+  return old;
+end $$;
+
+drop trigger if exists tiebreakers_before_delete on public.tiebreakers;
+create trigger tiebreakers_before_delete
+  before delete on public.tiebreakers
+  for each row execute function public.tiebreakers_before_delete();
+
 create or replace function public.picks_before_write()
 returns trigger language plpgsql security definer set search_path = public as $$
 declare
@@ -267,11 +363,33 @@ drop policy if exists "delete own picks" on public.picks;
 create policy "delete own picks" on public.picks for delete to authenticated
   using (user_id = auth.uid());
 
+alter table public.tiebreakers enable row level security;
+
+-- Same rule as picks: your own prediction always, everyone else's only once
+-- that game has kicked off.
+drop policy if exists "read tiebreakers" on public.tiebreakers;
+create policy "read tiebreakers" on public.tiebreakers for select to authenticated
+  using (
+    user_id = auth.uid()
+    or exists (select 1 from public.games g
+                where g.id = tiebreakers.game_id and g.kickoff <= now())
+  );
+drop policy if exists "insert own tiebreakers" on public.tiebreakers;
+create policy "insert own tiebreakers" on public.tiebreakers for insert to authenticated
+  with check (user_id = auth.uid());
+drop policy if exists "update own tiebreakers" on public.tiebreakers;
+create policy "update own tiebreakers" on public.tiebreakers for update to authenticated
+  using (user_id = auth.uid()) with check (user_id = auth.uid());
+drop policy if exists "delete own tiebreakers" on public.tiebreakers;
+create policy "delete own tiebreakers" on public.tiebreakers for delete to authenticated
+  using (user_id = auth.uid());
+
 -- Explicit grants (Supabase usually adds these by default, but be sure).
 grant usage on schema public to authenticated;
 grant select on public.seasons, public.profiles, public.games, public.lines to authenticated;
 grant update (display_name) on public.profiles to authenticated;
 grant select, insert, update, delete on public.picks to authenticated;
+grant select, insert, update, delete on public.tiebreakers to authenticated;
 grant usage, select on all sequences in schema public to authenticated;
 
 -- No TABLE is readable anonymously. The one thing anon can reach is the
@@ -362,24 +480,58 @@ from public.results_all r
 where r.result is not null
 group by r.user_id, r.season, r.week;
 
--- Who won each complete week (ties → everyone at the top gets a tie).
+-- How far off each tiebreaker prediction was, once that game is final.
+-- margin is signed home - away, so predicting the wrong winner costs double.
+create or replace view public.week_tiebreak
+with (security_invoker = true) as
+select
+  t.user_id, t.season, t.week, t.game_id,
+  t.home_score as pred_home, t.away_score as pred_away,
+  g.home_score as actual_home, g.away_score as actual_away,
+  abs((t.home_score + t.away_score) - (g.home_score + g.away_score)) as total_err,
+  abs((t.home_score - t.away_score) - (g.home_score - g.away_score)) as margin_err
+from public.tiebreakers t
+join public.games g on g.id = t.game_id
+where g.status = 'final' and g.home_score is not null and g.away_score is not null;
+
+-- Who won each complete week. A points tie is broken by the Monday night score
+-- prediction: closest total wins, then closest margin. Someone who entered one
+-- beats someone who didn't; if neither did (or the week predates the
+-- tiebreaker) it stays a tie, exactly as before.
 create or replace view public.week_winners
 with (security_invoker = true) as
-select wr.user_id, wr.season, wr.week, wr.points,
+with scored as (
+  select wr.user_id, wr.season, wr.week, wr.points,
+         tb.total_err, tb.margin_err,
+         max(wr.points) over (partition by wr.season, wr.week) as max_points
+    from public.weekly_results wr
+    join public.week_status ws
+      on ws.season = wr.season and ws.week = wr.week and ws.complete
+    left join public.week_tiebreak tb
+      on tb.user_id = wr.user_id and tb.season = wr.season and tb.week = wr.week
+),
+contenders as (
+  select sc.user_id, sc.season, sc.week,
+         count(*) over (partition by sc.season, sc.week) as n_at_max,
+         -- (total_err is null) sorts false first, so an entry outranks a no-show.
+         rank() over (partition by sc.season, sc.week
+                      order by (sc.total_err is null), sc.total_err, sc.margin_err) as tb_rank,
+         count(*) over (partition by sc.season, sc.week,
+                        (sc.total_err is null), sc.total_err, sc.margin_err) as n_tied_here
+    from scored sc
+   where sc.points = sc.max_points
+)
+select sc.user_id, sc.season, sc.week, sc.points,
   case
-    when wr.points = mx.max_points and mx.n_at_max = 1 then 'won'
-    when wr.points = mx.max_points then 'tied'
+    when sc.points <> sc.max_points              then 'lost'
+    when c.n_at_max = 1                          then 'won'
+    when c.tb_rank = 1 and c.n_tied_here = 1     then 'won'
+    when c.tb_rank = 1                           then 'tied'
     else 'lost'
   end as outcome
-from public.weekly_results wr
-join (
-  select season, week, max(points) as max_points,
-         count(*) filter (where points = (select max(points) from public.weekly_results w2
-                                          where w2.season = w1.season and w2.week = w1.week)) as n_at_max
-  from public.weekly_results w1
-  group by season, week
-) mx on mx.season = wr.season and mx.week = wr.week
-join public.week_status ws on ws.season = wr.season and ws.week = wr.week and ws.complete;
+from scored sc
+left join contenders c
+  on c.user_id = sc.user_id and c.season = sc.season and c.week = sc.week;
 
 -- Season scoreboard.
 create or replace view public.season_standings
@@ -405,10 +557,17 @@ group by pl.id, pl.display_name, s.year;
 
 -- How many picks each player has in for a week, WITHOUT revealing which side.
 -- security definer so it can count picks RLS would otherwise hide.
+-- Gained has_tiebreak mid-season; a returns-table shape can't change in place.
+-- The grants below are re-applied right after, so the drop is safe to re-run.
+drop function if exists public.week_pick_counts(int, int);
 create or replace function public.week_pick_counts(p_season int, p_week int)
-returns table (user_id uuid, picks int, has_gold boolean)
+returns table (user_id uuid, picks int, has_gold boolean, has_tiebreak boolean)
 language sql security definer set search_path = public stable as $$
-  select pl.id, count(p.id)::int, coalesce(bool_or(p.is_gold), false)
+  select pl.id,
+         count(p.id)::int,
+         coalesce(bool_or(p.is_gold), false),
+         exists (select 1 from public.tiebreakers t
+                  where t.user_id = pl.id and t.season = p_season and t.week = p_week)
   from public.profiles pl
   left join public.picks p on p.user_id = pl.id and p.season = p_season and p.week = p_week
   where pl.active
@@ -447,5 +606,6 @@ $$;
 revoke all on function public.freeze_closing_lines() from public, anon, authenticated;
 
 grant select on public.pick_results, public.results_all, public.week_status,
-                public.weekly_results, public.week_winners, public.season_standings
+                public.weekly_results, public.week_winners, public.week_tiebreak,
+                public.season_standings
   to authenticated;

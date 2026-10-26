@@ -14,7 +14,7 @@ const S = {
   seasons: [],
   season: null, week: null,   // selected
   thisSeason: null, thisWeek: null,
-  games: [], picks: [], counts: [],
+  games: [], picks: [], counts: [], tiebreaks: [],
   results: [], standings: [], weekly: [], winners: [], weekStatus: [],
   tab: 'picks',
 };
@@ -41,6 +41,19 @@ const kicked = (g) => new Date(g.kickoff) <= new Date();
 // are exactly the open ones. Reading the cap from the data avoids doing timezone
 // math here, and stays right in the ~2h gap where nfl_week() has already rolled
 // over (midnight ET) but the board has not opened yet (12:01 AM MT).
+// The week's tiebreaker game, or null. Mirrors public.tiebreak_game(): the
+// latest kickoff in the week, smallest id first if a doubleheader shares it,
+// and only from the season's configured start week.
+function tiebreakGameId() {
+  const season = S.seasons.find(x => x.year === S.season);
+  if (!season || season.tiebreak_from_week == null) return null;
+  if (S.week < season.tiebreak_from_week || !S.games.length) return null;
+  const latest = Math.max(...S.games.map(g => Date.parse(g.kickoff)));
+  return S.games.filter(g => Date.parse(g.kickoff) === latest)
+                .sort((a, b) => (a.id < b.id ? -1 : 1))[0].id;
+}
+const myTiebreak = (gameId) => S.tiebreaks.find(t => t.game_id === gameId && t.user_id === S.user.id);
+
 const maxWeek = () => {
   const open = S.weekStatus.map(w => w.week);
   return open.length ? Math.max(...open) : Math.min(S.thisWeek ?? 18, 18);
@@ -57,6 +70,10 @@ function friendly(err) {
   if (m.includes('GOLD_LOCKED')) return "Your gold pick this week already kicked off, so it's staying put.";
   if (m.includes('NO_LINE')) return "DraftKings hasn't posted a line for that game yet.";
   if (m.includes('NOT_OPEN')) return "That week isn't open yet — next week's board unlocks Tuesday at 12:01 AM MT.";
+  if (m.includes('NOT_TIEBREAK_GAME')) return 'Only the Monday night game takes a score prediction.';
+  if (m.includes('NO_TIEBREAK')) return "This week doesn't have a tiebreaker.";
+  if (m.includes('tiebreakers_home_score_check') || m.includes('tiebreakers_away_score_check'))
+    return 'Scores have to be between 0 and 199.';
   return m;
 }
 
@@ -139,9 +156,10 @@ async function boot() {
 async function refresh() {
   $('#refresh').disabled = true;
   try {
-    const [games, picks, counts, results, standings, weekly, winners, weekStatus] = await Promise.all([
+    const [games, picks, tiebreaks, counts, results, standings, weekly, winners, weekStatus] = await Promise.all([
       sb.from('games').select('*').eq('season', S.season).eq('week', S.week).order('kickoff'),
       sb.from('picks').select('*').eq('season', S.season).eq('week', S.week),
+      sb.from('tiebreakers').select('*').eq('season', S.season).eq('week', S.week),
       sb.rpc('week_pick_counts', { p_season: S.season, p_week: S.week }),
       sb.from('results_all').select('*').eq('season', S.season),
       sb.from('season_standings').select('*').eq('season', S.season),
@@ -149,8 +167,8 @@ async function refresh() {
       sb.from('week_winners').select('*').eq('season', S.season),
       sb.from('week_status').select('*').eq('season', S.season),
     ]);
-    for (const r of [games, picks, counts, results, standings, weekly, winners, weekStatus]) if (r.error) throw r.error;
-    S.games = games.data; S.picks = picks.data; S.counts = counts.data; S.results = results.data;
+    for (const r of [games, picks, tiebreaks, counts, results, standings, weekly, winners, weekStatus]) if (r.error) throw r.error;
+    S.games = games.data; S.picks = picks.data; S.tiebreaks = tiebreaks.data; S.counts = counts.data; S.results = results.data;
     S.standings = standings.data; S.weekly = weekly.data; S.winners = winners.data; S.weekStatus = weekStatus.data;
     render();
   } catch (e) { console.error(e); toast(friendly(e), true); }
@@ -195,6 +213,21 @@ async function toggleGold(game) {
 }
 const myPick = (gameId) => S.picks.find(p => p.game_id === gameId && p.user_id === S.user.id);
 
+async function saveTiebreak(game, away, home) {
+  if (![away, home].every(n => Number.isInteger(n) && n >= 0 && n <= 199)) {
+    return toast('Enter two whole numbers between 0 and 199.', true);
+  }
+  try {
+    const { error } = await sb.from('tiebreakers').upsert(
+      { user_id: S.user.id, game_id: game.id, season: game.season, week: game.week,
+        home_score: home, away_score: away },
+      { onConflict: 'user_id,game_id' });
+    if (error) throw error;
+    toast(`Tiebreaker saved — ${short(game.away_team)} ${away}, ${short(game.home_team)} ${home}`);
+    await refresh();
+  } catch (e) { toast(friendly(e), true); refresh(); }
+}
+
 // ---------------------------------------------------------------- nav
 document.querySelectorAll('.tab').forEach(b => b.addEventListener('click', () => {
   S.tab = b.dataset.tab;
@@ -233,6 +266,9 @@ function renderPickStatus() {
     box.append(el('span', { class: 'chip' + (isMe ? ' me' : '') },
       el('b', {}, isMe ? 'You' : p.display_name), ` ${c.picks}/${total} picked `,
       c.has_gold ? el('span', { class: 'gold' }, '⭐') : (total ? el('span', { class: 'warn', title: 'No gold pick yet' }, '☆') : ''),
+      tiebreakGameId() ? (c.has_tiebreak
+        ? el('span', { class: 'gold', title: 'Tiebreaker in' }, '🏁')
+        : el('span', { class: 'warn', title: 'No tiebreaker yet' }, '⚐')) : null,
       w ? ` · ${w.points} pt${w.points === 1 ? '' : 's'} (${w.wins}-${w.losses}${w.pushes ? '-' + w.pushes : ''})` : ''));
   }
 }
@@ -254,6 +290,57 @@ function renderGames() {
     if (day !== lastDay) { box.append(el('div', { class: 'day' }, day)); lastDay = day; }
     box.append(gameCard(g, resultsByGame[g.id] || []));
   }
+}
+
+// Score prediction on the week's Monday night game. Only consulted if the
+// week ends level on points — closest total, then closest margin.
+function tiebreakBlock(g, locked) {
+  const mine = myTiebreak(g.id);
+  const wrap = el('div', { class: 'tiebreak' });
+  wrap.append(el('div', { class: 'tbhead' }, '🏁 Tiebreaker',
+    el('span', { class: 'small' }, 'Only used if the week ends tied')));
+
+  if (!locked) {
+    const away = el('input', { class: 'tbin', type: 'number', min: '0', max: '199',
+      inputmode: 'numeric', placeholder: short(g.away_team),
+      value: mine ? String(mine.away_score) : '' });
+    const home = el('input', { class: 'tbin', type: 'number', min: '0', max: '199',
+      inputmode: 'numeric', placeholder: short(g.home_team),
+      value: mine ? String(mine.home_score) : '' });
+    const save = el('button', { class: 'tbsave', onclick: () =>
+      saveTiebreak(g, parseInt(away.value, 10), parseInt(home.value, 10)) }, mine ? 'Update' : 'Save');
+    wrap.append(el('div', { class: 'tbrow' },
+      el('span', { class: 'tbteam' }, short(g.away_team)), away,
+      el('span', { class: 'at' }, '@'),
+      el('span', { class: 'tbteam' }, short(g.home_team)), home, save));
+    wrap.append(el('span', { class: 'small' }, mine
+      ? 'Saved. You can change it until kickoff.'
+      : 'Predict the final score. Locks at kickoff.'));
+    return wrap;
+  }
+
+  // Locked: everyone's prediction is visible, scored once the game is final.
+  const final = g.status === 'final';
+  const actualTotal = final ? g.home_score + g.away_score : null;
+  const actualMargin = final ? g.home_score - g.away_score : null;
+  const row = el('div', { class: 'others' });
+  for (const p of [...S.profiles.values()].filter(x => x.active)
+                   .sort((a, b) => a.display_name.localeCompare(b.display_name))) {
+    const t = S.tiebreaks.find(x => x.game_id === g.id && x.user_id === p.id);
+    const who = p.id === S.user.id ? 'You' : p.display_name;
+    if (!t) { row.append(el('span', { class: 'pill missed' }, `${who}: none`)); continue; }
+    const errs = final
+      ? ` · off ${Math.abs((t.home_score + t.away_score) - actualTotal)}` +
+        ` / ${Math.abs((t.home_score - t.away_score) - actualMargin)}`
+      : '';
+    row.append(el('span', { class: 'pill' },
+      `${who}: ${short(g.away_team)} ${t.away_score}, ${short(g.home_team)} ${t.home_score}${errs}`));
+  }
+  wrap.append(row);
+  if (final) wrap.append(el('span', { class: 'small' },
+    `Actual total ${actualTotal}, margin ${actualMargin > 0 ? '+' : ''}${actualMargin}` +
+    ' — "off" shows total / margin error.'));
+  return wrap;
 }
 
 function gameCard(g, results) {
@@ -311,10 +398,12 @@ function gameCard(g, results) {
     if (g.closing_home_spread !== null) foot.append(el('span', { class: 'small' }, `closed ${short(g.home_team)} ${fmtSpread(g.closing_home_spread)}`));
   }
 
-  return el('div', { class: 'game' + (locked ? ' locked' : '') },
+  const isTiebreak = g.id === tiebreakGameId();
+  return el('div', { class: 'game' + (locked ? ' locked' : '') + (isTiebreak ? ' tb' : '') },
     el('div', { class: 'meta' }, status, el('span', {}, locked ? '' : 'Pick locks at kickoff')),
     el('div', { class: 'sides' }, sideBtn('away'), el('div', { class: 'at' }, '@'), sideBtn('home')),
-    foot);
+    foot,
+    isTiebreak ? tiebreakBlock(g, locked) : null);
 }
 
 function renderStandings() {
