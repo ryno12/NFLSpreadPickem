@@ -166,8 +166,9 @@ create unique index if not exists one_gold_per_week
   on public.picks (user_id, season, week) where is_gold;
 
 -- ------------------------------------------------------------
--- Tiebreakers: a predicted final score for the week's last game
--- (Monday night). Only consulted when a week ends level on points.
+-- Tiebreakers: a predicted final score for the week's last game —
+-- Monday night, or Sunday night in a week with no Monday game (week 18).
+-- Only consulted when a week ends level on points.
 -- One row per player per week; locks at that game's kickoff.
 -- ------------------------------------------------------------
 create table if not exists public.tiebreakers (
@@ -183,9 +184,11 @@ create table if not exists public.tiebreakers (
   unique (user_id, season, week)
 );
 
--- The game a week's tiebreaker attaches to: the latest kickoff in that week,
--- which is the Monday night game. Returns NULL before the season's configured
--- start week, so no tiebreaker exists to enter or score.
+-- The game a week's tiebreaker attaches to: the latest kickoff in that week.
+-- That is the Monday night game in a normal week, and the Sunday night game in
+-- a week with no Monday game (week 18) — verified against a simulated week 18
+-- slate. Returns NULL before the season's configured start week, so no
+-- tiebreaker exists to enter or score.
 -- security definer so triggers and views agree on the answer regardless of
 -- who is asking; it returns only a game id.
 create or replace function public.tiebreak_game(p_season int, p_week int)
@@ -224,7 +227,7 @@ begin
     raise exception 'NO_TIEBREAK: week % does not have a tiebreaker', g.week;
   end if;
   if tg is distinct from new.game_id then
-    raise exception 'NOT_TIEBREAK_GAME: only the Monday night game takes a score prediction';
+    raise exception 'NOT_TIEBREAK_GAME: only the last game of the week takes a score prediction';
   end if;
   if g.kickoff <= now() then
     raise exception 'LOCKED: this game has already kicked off';
@@ -494,8 +497,8 @@ from public.tiebreakers t
 join public.games g on g.id = t.game_id
 where g.status = 'final' and g.home_score is not null and g.away_score is not null;
 
--- Who won each complete week. A points tie is broken by the Monday night score
--- prediction: closest total wins, then closest margin. Someone who entered one
+-- Who won each complete week. A points tie is broken by the score prediction on
+-- the week's last game: closest total wins, then closest margin. Someone who entered one
 -- beats someone who didn't; if neither did (or the week predates the
 -- tiebreaker) it stays a tie, exactly as before.
 create or replace view public.week_winners

@@ -70,7 +70,7 @@ function friendly(err) {
   if (m.includes('GOLD_LOCKED')) return "Your gold pick this week already kicked off, so it's staying put.";
   if (m.includes('NO_LINE')) return "DraftKings hasn't posted a line for that game yet.";
   if (m.includes('NOT_OPEN')) return "That week isn't open yet — next week's board unlocks Tuesday at 12:01 AM MT.";
-  if (m.includes('NOT_TIEBREAK_GAME')) return 'Only the Monday night game takes a score prediction.';
+  if (m.includes('NOT_TIEBREAK_GAME')) return "Only the week's last game takes a score prediction.";
   if (m.includes('NO_TIEBREAK')) return "This week doesn't have a tiebreaker.";
   if (m.includes('tiebreakers_home_score_check') || m.includes('tiebreakers_away_score_check'))
     return 'Scores have to be between 0 and 199.';
@@ -292,8 +292,9 @@ function renderGames() {
   }
 }
 
-// Score prediction on the week's Monday night game. Only consulted if the
-// week ends level on points — closest total, then closest margin.
+// Score prediction on the week's last game — Monday night normally, Sunday
+// night in a week with no Monday game. Only consulted if the week ends level
+// on points: closest total, then closest margin.
 function tiebreakBlock(g, locked) {
   const mine = myTiebreak(g.id);
   const wrap = el('div', { class: 'tiebreak' });
